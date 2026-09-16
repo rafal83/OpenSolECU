@@ -175,6 +175,7 @@ bool APSystemsDecoder::decode(const uint8_t *p, size_t n, const uint8_t serial[6
         previous_ = false;
     detected_ = model;
     s.energyDeltaWh = 0;
+    s.powerIntervalSeconds = 0;
     s.totalPower = missing;
     for (auto &channel : s.channels)
         channel.power = missing;
@@ -192,6 +193,7 @@ bool APSystemsDecoder::decode(const uint8_t *p, size_t n, const uint8_t serial[6
             plausible &= delta[i] * 3600 / dt <= 2000;
         }
         if (plausible) {
+            s.powerIntervalSeconds = dt;
             s.totalPower = 0;
             for (size_t i = 0; i < s.channelCount; i++) {
                 s.channels[i].power = delta[i] * 3600 / dt;

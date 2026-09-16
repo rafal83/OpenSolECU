@@ -9,7 +9,7 @@ let page = "",
   frameCursor = 0,
   lastSniffer = null,
   config = null,
-  selectedSerial = "",
+  selectedSerial = "all",
   latestInverters = [];
 const fmt = (n, d = 1) =>
   n === null || n === undefined || !Number.isFinite(n)
@@ -61,11 +61,11 @@ function configuredChannels(v) {
 function inverterSelectors(rows) {
   latestInverters = rows;
   const choices = rows.map((v) => ({ value: v.serial, label: inverterLabel(v) }));
-  if (selectedSerial && selectedSerial !== "all" && !rows.some((v) => v.serial === selectedSerial))
-    selectedSerial = rows[0]?.serial || "";
+  if (rows.length < 2) selectedSerial = rows[0]?.serial || "";
+  else if (selectedSerial !== "all" && !rows.some((v) => v.serial === selectedSerial)) selectedSerial = "all";
   for (const id of ["history-inverter", "stats-inverter"]) {
     const el = $("#" + id);
-    const list = rows.length > 1 ? [{ value: "all", label: "Tous les onduleurs (cumulé)" }, ...choices] : choices;
+    const list = rows.length > 1 ? [{ value: "all", label: "Cumulés" }, ...choices] : choices;
     const key = JSON.stringify(list);
     if (el.dataset.choices !== key) {
       el.replaceChildren(
@@ -102,6 +102,10 @@ function inverterCard(v, index, panelOffset) {
       stale: "Mesure périmée · en attente d’une nouvelle réponse",
       no_data: "Aucune mesure reçue",
     }[v.status] || (v.online ? "Mesure reçue" : "Aucune mesure reçue");
+  if (v.status === "measured" && v.powerIntervalSeconds > 60) {
+    const minutes = Math.round(v.powerIntervalSeconds / 60);
+    status.textContent += ` · puissance moyenne sur ${minutes} min`;
+  }
   if (v.simulated) status.textContent += " · SIMULATION";
   if (!v.configured) status.textContent += " · Découvert, à enregistrer dans Réglages";
   const panels = document.createElement("div");
@@ -173,7 +177,6 @@ function live(s) {
     }),
   );
   $("#inverter-empty").hidden = rows.length > 0;
-  if (!$("#history-inverter").dataset.choices) selectedSerial = rows[0]?.serial || "";
   inverterSelectors(rows);
   if (s.simulated) {
     $("#mode-banner").hidden = false;
@@ -385,7 +388,6 @@ function metric(label, value, unit = "") {
 async function stats() {
   if (!latestInverters.length) {
     const data = await api("/api/live");
-    selectedSerial = data.inverters?.[0]?.serial || "";
     inverterSelectors(data.inverters || []);
   }
   const s = await api("/api/stats?serial=" + encodeURIComponent(selectedSerial));

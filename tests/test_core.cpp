@@ -411,10 +411,27 @@ int main(int argc, char **argv) {
         s.monotonicMs = 6000;
         CHECK(decoder.decode(next.data(), next.size(), id, s));
         CHECK(near(s.totalPower, 22000 * .0000166 * 3600 / 5, 1e-4));
+        CHECK(s.powerIntervalSeconds == 5);
         CHECK(near(s.energyDeltaWh, 22000 * .0000166));
         s.monotonicMs = 11000;
         CHECK(decoder.decode(next.data(), next.size(), id, s));
         CHECK(std::isnan(s.totalPower) && s.energyDeltaWh == 0);
+        APSystemsDecoder sparseDecoder;
+        InverterState sparse;
+        sparse.maximumGapMs = 2U * 60U * 60U * 1000U;
+        sparse.monotonicMs = 1;
+        CHECK(sparseDecoder.decode(b.data(), b.size(), id, sparse));
+        auto sparseNext = b;
+        be32(sparseNext, 50, sparse.rawEnergy[0] + 1000000);
+        be32(sparseNext, 54, sparse.rawEnergy[1] + 1200000);
+        time = sparse.inverterSeconds + 1800;
+        sparseNext[38] = time >> 8;
+        sparseNext[39] = time;
+        checksum(sparseNext);
+        sparse.monotonicMs += 1800U * 1000U;
+        CHECK(sparseDecoder.decode(sparseNext.data(), sparseNext.size(), id, sparse));
+        CHECK(sparse.powerIntervalSeconds == 1800);
+        CHECK(near(sparse.totalPower, 2200000 * .0000166 * 2, 1e-4));
         // Every truncation of the published DS3 payload is rejected.
         for (size_t n = 0; n < b.size(); n++)
             CHECK(!decoder.decode(b.data(), n, id, s));

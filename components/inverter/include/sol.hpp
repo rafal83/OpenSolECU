@@ -36,6 +36,7 @@ struct InverterState {
     bool signalValid = false, countersValid = false;
     std::array<uint32_t, maxChannels> rawEnergy{};
     uint16_t inverterSeconds = 0;
+    uint32_t powerIntervalSeconds = 0;
     double energyDeltaWh = 0;
 };
 template <typename T, size_t N> class Ring {

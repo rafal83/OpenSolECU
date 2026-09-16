@@ -8,6 +8,7 @@
 #include <cstdio>
 
 namespace sol {
+static constexpr uint32_t passiveMaximumGapMs = 2U * 60U * 60U * 1000U;
 struct View {
     InverterConfig config;
     InverterState state;
@@ -92,7 +93,10 @@ static void worker(void *) {
             snprintf(serial + 2 * i, 3, "%02X", payload.bytes[i]);
         auto slot = find(serial);
         InverterState state;
-        state.maximumGapMs = 900000; // ECU polls can be several minutes apart.
+        // Passive reception can miss complete fragmented replies for several ECU cycles.
+        // Counter deltas remain valid over a longer interval; the resulting power is an
+        // interval average and is exposed as such through powerIntervalSeconds.
+        state.maximumGapMs = passiveMaximumGapMs;
         state.timestamp = input.frame.epochUs / 1000000;
         state.monotonicMs = input.frame.monotonicUs / 1000;
         state.rssi = input.frame.rssi;
@@ -216,6 +220,7 @@ static cJSON *viewJson(const View &v) {
     num(j, "last_seen", s.lastSeen >= 1704067200 ? s.lastSeen : 0);
     num(j, "messages", v.messages);
     num(j, "totalPower", s.totalPower);
+    num(j, "powerIntervalSeconds", s.powerIntervalSeconds);
     num(j, "todayWh", v.measured && v.totals.day == dayKey(time(nullptr)) ? v.totals.dayWh : missing);
     num(j, "totalWh", v.measured ? v.totals.totalWh : missing);
     num(j, "acVoltage", s.acVoltage);
