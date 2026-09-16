@@ -139,7 +139,9 @@ bool APSystemsDecoder::decode(const uint8_t *p, size_t n, const uint8_t serial[6
         s.channels[1].current = be16(p + 32) * 0.0125f;
         s.acVoltage = be16(p + 34) == 0xffff ? missing : be16(p + 34) / 3.8f;
         s.acFrequency = be16(p + 36) == 0xffff ? missing : be16(p + 36) / 100.0f;
-        s.temperature = be16(p + 48) == 0xffff ? missing : be16(p + 48) * 0.0198f - 23.84f;
+        // Paired radio/ECU-C samples across several DS3 units match this
+        // conversion within the ECU's one-degree reporting resolution.
+        s.temperature = be16(p + 48) == 0xffff ? missing : be16(p + 48) / 40.0f - 26.5f;
         s.rawEnergy[0] = be32(p + 50);
         s.rawEnergy[1] = be32(p + 54);
         s.inverterSeconds = be16(p + 38);

@@ -35,10 +35,12 @@ async function api(path, options = {}) {
   const headers = { ...options.headers };
   if (options.body && !(options.body instanceof Blob)) headers["Content-Type"] = "application/json";
   const r = await fetch(path, { ...options, headers });
+  const text = await r.text();
   let data;
   try {
-    data = await r.json();
+    data = JSON.parse(text);
   } catch {
+    if (!r.ok) throw Error(text || `HTTP ${r.status}`);
     throw Error("Réponse du module illisible");
   }
   if (!r.ok) {
@@ -848,7 +850,7 @@ setInterval(() => {
   if (document.hidden) return;
   if (page === "debug") debug().catch(() => {});
   if (page === "system") system().catch(() => {});
-}, 5000);
+}, 15000);
 setInterval(() => {
   if (page === "dashboard" && !document.hidden) history().catch(() => {});
 }, 60000);

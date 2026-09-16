@@ -392,7 +392,7 @@ int main(int argc, char **argv) {
         CHECK(near(s.channels[1].voltage, 1785 / 48.0, 1e-4));
         CHECK(near(s.acVoltage, 864 / 3.8, 1e-4));
         CHECK(near(s.acFrequency, 50.02, 1e-4));
-        CHECK(near(s.temperature, 1680 * .0198 - 23.84, 1e-4));
+        CHECK(near(s.temperature, 1680.0 / 40.0 - 26.5, 1e-4));
         auto wrong = b;
         wrong[30] ^= 1;
         CHECK(!decoder.decode(wrong.data(), wrong.size(), id, s));

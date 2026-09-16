@@ -88,7 +88,7 @@ somme big endian de 16 bits avant `FE FE`. La somme de cet échantillon est `396
 | 34 | 2, BE | tension AC = valeur / 3,8 |
 | 36 | 2, BE | fréquence AC = valeur / 100 |
 | 38 | 2, BE | temps de l'onduleur, secondes |
-| 48 | 2, BE | température = valeur × 0,0198 − 23,84 |
+| 48 | 2, BE | température = valeur / 40 − 26,5 ; conversion confrontée aux valeurs ECU-C |
 | 50 / 54 | 4 / 4, BE | compteurs énergie × 0,0000166 Wh |
 
 Ces offsets/calibrations sont **KNOWN dans le code de référence**, leur validité

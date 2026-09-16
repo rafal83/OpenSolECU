@@ -300,15 +300,18 @@ static void eventsWorker(void *arg) {
         cJSON_Delete(j);
         if (!payload)
             break;
-        std::string data = "event: ";
-        data += event->sniffer ? "frames" : "live";
-        if (event->sniffer)
-            data += "\nid: " + std::to_string(event->cursor);
-        data += "\ndata: ";
-        data += payload;
-        data += "\n\n";
+        const char *eventName = event->sniffer ? "frames" : "live";
+        char header[64];
+        int headerLength = event->sniffer
+                               ? snprintf(header, sizeof(header), "event: %s\nid: %llu\ndata: ", eventName,
+                                          static_cast<unsigned long long>(event->cursor))
+                               : snprintf(header, sizeof(header), "event: %s\ndata: ", eventName);
+        bool sent = headerLength > 0 && size_t(headerLength) < sizeof(header) &&
+                    httpd_resp_send_chunk(req, header, headerLength) == ESP_OK &&
+                    httpd_resp_send_chunk(req, payload, strlen(payload)) == ESP_OK &&
+                    httpd_resp_send_chunk(req, "\n\n", 2) == ESP_OK;
         cJSON_free(payload);
-        if (httpd_resp_send_chunk(req, data.c_str(), data.size()) != ESP_OK)
+        if (!sent)
             break;
         vTaskDelay(pdMS_TO_TICKS(event->sniffer ? 1000 : 5000));
     }

@@ -51,7 +51,7 @@ def preview(data):
                 warning=None if valid else 'PARTIAL OR INVALID: reference-scaled fields, not validated measurements',
                 pv1Voltage=be(26)/48,pv2Voltage=be(28)/48,pv1Current=be(30)*.0125,
                 pv2Current=be(32)*.0125,acVoltage=be(34)/3.8,acFrequency=be(36)/100,
-                inverterSeconds=be(38),temperature=be(48)*.0198-23.84,
+                inverterSeconds=be(38),temperature=be(48)/40-26.5,
                 energyCounter1=be(50,4),energyCounter2=be(54,4))
 
 
