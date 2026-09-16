@@ -1,0 +1,8 @@
+menu "OpenSolECU"
+config OPENSOLECU_FORCE_SNIFFER
+    bool "Lock firmware to passive sniffer (no normal-mode radio TX)"
+    default n
+config OPENSOLECU_MOCK_INVERTER
+    bool "Use simulated APsystems inverter (never enable for production)"
+    default n
+endmenu

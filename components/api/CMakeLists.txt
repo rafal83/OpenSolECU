@@ -1,0 +1,1 @@
+idf_component_register(SRCS "api.cpp" INCLUDE_DIRS "include" REQUIRES acquisition config statistics storage wifi_manager time_manager sniffer logging esp_http_server app_update esp_app_format esp_timer spi_flash)

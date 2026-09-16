@@ -1,0 +1,9 @@
+[
+  {"at":1,"command":"status"},
+  {"at":3,"command":"tx-guard-test"},
+  {"at":5,"command":"sniffer {\"action\":\"scan\",\"dwell\":3}"},
+  {"at":55,"command":"sniffer"},
+  {"at":57,"command":"sniffer {\"action\":\"capture\",\"channel\":16,\"duration\":30}"},
+  {"at":89,"command":"sniffer-frames"},
+  {"at":92,"command":"status"}
+]

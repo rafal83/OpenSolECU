@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#111e1a" />
+    <title>OpenSolECU</title>
+    <link rel="stylesheet" href="/app.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <aside>
+      <a class="brand" href="#dashboard"
+        ><span class="sun">☀</span
+        ><span>OpenSol<span class="thin">ECU</span><small>VOTRE ÉNERGIE, EN LOCAL</small></span></a
+      >
+      <nav>
+        <a href="#dashboard">Vue d’ensemble</a><a href="#statistics">Statistiques</a
+        ><a href="#sniffer">Radio sniffer <span class="tag">RX</span></a
+        ><a href="#settings">Réglages</a><a href="#system">Système</a><a href="#debug">Journal</a>
+      </nav>
+      <div class="local"><span class="dot"></span> Autonome & local<small>ESP32-C6 · Sans cloud</small></div>
+    </aside>
+    <main>
+      <header>
+        <div>
+          <span class="eyebrow" id="installation">MON INSTALLATION</span>
+          <h1 id="page-title">Vue d’ensemble</h1>
+        </div>
+        <div class="header-right"><span id="connection" class="badge">Connexion…</span></div>
+      </header>
+      <div id="notice" role="status" hidden></div>
+      <div id="mode-banner" class="banner" hidden></div>
+      <section id="dashboard" class="page">
+        <div class="hero">
+          <div>
+            <span class="eyebrow"><span id="power-label">PRODUCTION ACTUELLE</span></span>
+            <div class="power"><span id="power">—</span><span>W</span></div>
+            <div id="inverter-status">Onduleurs APsystems · En attente de données</div>
+          </div>
+          <div class="today">
+            <span>Aujourd’hui</span><strong id="today-energy">—</strong
+            ><small id="today-energy-unit">kWh mesurés</small>
+          </div>
+          <div class="hero-art" aria-hidden="true">☀</div>
+        </div>
+        <div id="inverter-grid" class="inverter-grid"></div>
+        <p id="inverter-empty" class="muted" hidden>
+          Aucun onduleur configuré. Ajoutez vos onduleurs dans <a href="#settings">Réglages</a>, ou attendez une
+          réponse passive complète.
+        </p>
+        <article class="card chart-card">
+          <div class="card-heading">
+            <div>
+              <span class="eyebrow">AU FIL DU TEMPS</span>
+              <h2>Production mesurée</h2>
+            </div>
+            <div class="ranges" id="ranges">
+              <button data-range="today" class="selected">Aujourd’hui</button
+              ><button data-range="7d">7 jours</button><button data-range="30d">30 jours</button
+              ><button data-range="12m">12 mois</button>
+            </div>
+          </div>
+          <label class="inverter-select"
+            >Onduleur affiché dans l’historique<select id="history-inverter"></select
+          ></label>
+          <div class="legend"><span>Total</span><span>PV1</span><span>PV2</span><span>PV3</span><span>PV4</span></div>
+          <canvas id="production-chart" aria-label="Production électrique mesurée" role="img"></canvas>
+          <p id="chart-note" class="muted">En attente du premier point d’historique.</p>
+        </article>
+      </section>
+      <section id="statistics" class="page" hidden>
+        <label class="inverter-select"
+          >Onduleur affiché dans les statistiques<select id="stats-inverter"></select
+        ></label>
+        <div id="stats-grid" class="stats-grid"></div>
+        <article class="card">
+          <h2>Emporter vos données</h2>
+          <p class="muted">
+            Les exports contiennent les mesures disponibles. Les périodes sans mesure restent inconnues.
+          </p>
+          <form id="export-form" class="inline-form">
+            <label>Du<input type="date" name="from" /></label><label>Au<input type="date" name="to" /></label
+            ><label
+              >Résolution<select name="resolution">
+                <option value="minute">Minute</option>
+                <option value="15min">15 minutes</option>
+                <option value="day">Jour</option>
+              </select></label
+            ><button>Exporter CSV</button>
+          </form>
+          <a class="button quiet" href="/api/backup" download>Sauvegarde JSON</a>
+        </article>
+      </section>
+      <section id="sniffer" class="page" hidden>
+        <div class="sniffer-title">
+          <span class="rx">RX ONLY</span>
+          <div>
+            <h2>Observer, sans transmettre</h2>
+            <p class="muted">Passive mode — no radio transmission. L’ECU-C conserve ses associations.</p>
+          </div>
+        </div>
+        <div class="metrics" id="sniffer-metrics"></div>
+        <article class="card">
+          <div class="card-heading">
+            <h2>Capture radio</h2>
+            <span id="capture-state" class="badge">En attente</span>
+          </div>
+          <form id="capture-form" class="inline-form">
+            <label>Canal<select name="channel" id="sniffer-channel"></select></label
+            ><label
+              >Durée<select name="duration">
+                <option value="30">30 secondes</option>
+                <option value="60">1 minute</option>
+                <option value="300">5 minutes</option>
+                <option value="600">10 minutes</option>
+              </select></label
+            ><button>Démarrer</button
+            ><button type="button" id="fixed-channel" class="quiet">Écoute continue</button>
+          </form>
+          <div class="actions">
+            <button id="pause-capture" class="quiet">Pause</button
+            ><button id="resume-capture" class="quiet">Reprendre</button
+            ><button id="clear-capture" class="quiet">Effacer RAM</button
+            ><a href="/api/sniffer/export?format=pcapng" class="button" download>PCAPNG ↓</a
+            ><a href="/api/sniffer/export?format=jsonl" class="button quiet" download>JSONL ↓</a>
+          </div>
+          <p class="muted">
+            Dernières 256 trames en RAM. À la fin, la capture s’arrête. Exportez avant de redémarrer.
+          </p>
+        </article>
+        <article class="card">
+          <div class="card-heading">
+            <h2>Recherche de canal</h2>
+            <div class="actions">
+              <label
+                >Écoute / canal<select id="scan-dwell">
+                  <option>3</option>
+                  <option selected>5</option>
+                  <option>10</option>
+                </select></label
+              ><button id="scan-channels" class="quiet">Scanner 11–26</button>
+            </div>
+          </div>
+          <p id="probable-channel" class="muted">
+            La présence de structures APsystems détermine la suggestion.
+          </p>
+          <div id="channel-results" class="channel-grid"></div>
+        </article>
+        <article class="card">
+          <h2>Appareils observés</h2>
+          <div id="devices" class="table-scroll"></div>
+        </article>
+        <article class="card">
+          <h2>Émetteurs physiques (RSSI/LQI réels)</h2>
+          <p class="muted">
+            Le RSSI et le LQI appartiennent à l’émetteur radio réellement entendu, jamais à l’identité logique
+            (NWK) relayée.
+          </p>
+          <div id="physical-transmitters" class="table-scroll"></div>
+        </article>
+        <article class="card">
+          <div class="card-heading">
+            <h2>Trames en direct</h2>
+            <span class="muted">8 trames/s max vers ce navigateur</span>
+          </div>
+          <div class="filters">
+            <select id="frame-filter">
+              <option value="all">Toutes</option>
+              <option value="aps">APsystems</option>
+              <option value="ecu">ECU → onduleur</option>
+              <option value="inverter">Onduleur → ECU</option>
+              <option value="unknown">Inconnues</option></select
+            ><input id="source-filter" placeholder="Adresse source" aria-label="Filtre source" /><input
+              id="destination-filter"
+              placeholder="Adresse destination"
+              aria-label="Filtre destination"
+            /><input
+              id="channel-filter"
+              type="number"
+              min="11"
+              max="26"
+              placeholder="Canal"
+              aria-label="Filtre canal"
+            /><input
+              id="rssi-filter"
+              type="number"
+              min="-120"
+              max="0"
+              placeholder="RSSI min"
+              aria-label="RSSI minimum"
+            />
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Heure</th>
+                  <th>Canal</th>
+                  <th>RSSI</th>
+                  <th>Source</th>
+                  <th>Destination</th>
+                  <th>Protocole</th>
+                  <th>Octets</th>
+                </tr>
+              </thead>
+              <tbody id="frame-rows"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+      <section id="settings" class="page" hidden>
+        <form id="settings-form">
+          <article class="card">
+            <h2>Installation</h2>
+            <div class="form-grid">
+              <label>Nom<input name="installation" maxlength="48" required /></label
+              ><label
+                >Fuseau horaire<input name="timezone" required list="timezones" /><datalist id="timezones">
+                  <option>Europe/Paris</option>
+                  <option>UTC</option></datalist
+                ><small>Ou POSIX:CET-1CEST,M3.5.0,M10.5.0/3</small></label
+              >
+            </div>
+          </article>
+          <article class="card">
+            <h2>Réseau domestique</h2>
+            <div class="form-grid">
+              <label
+                >SSID<input name="ssid" maxlength="32" list="wifi-networks" /><datalist
+                  id="wifi-networks"
+                ></datalist></label
+              ><label
+                >Mot de passe<input
+                  name="password"
+                  type="password"
+                  maxlength="63"
+                  autocomplete="new-password"
+                  placeholder="Inchangé si vide"
+              /></label>
+            </div>
+            <button type="button" id="wifi-scan" class="quiet">Rechercher les réseaux 2,4 GHz</button>
+            <p id="wifi-scan-result" class="muted"></p>
+          </article>
+          <article class="card">
+            <h2>Accès Wi-Fi direct</h2>
+            <label class="check"
+              ><input name="apEnabled" type="checkbox" />Activer l’accès direct permanent</label
+            >
+            <p class="muted">L’AP de secours reste disponible si le réseau domestique est déconnecté.</p>
+            <div class="form-grid">
+              <label>SSID AP<input name="apSsid" maxlength="32" required /></label
+              ><label
+                >Mot de passe AP<input
+                  name="apPassword"
+                  type="password"
+                  minlength="8"
+                  maxlength="63"
+                  autocomplete="new-password"
+                  placeholder="Inchangé si vide"
+              /></label>
+            </div>
+          </article>
+          <article class="card">
+            <h2>Onduleurs et panneaux</h2>
+            <p class="muted">
+              Ajoutez vos micro-onduleurs APsystems et choisissez leur modèle. AUTO reconnaît DS3, YC600 et
+              QS1 à partir de la réponse radio ; le QS1 affiche quatre entrées PV, les deux autres en affichent
+              deux. Les changements s’appliquent après enregistrement.
+            </p>
+            <div id="inventory-editor"></div>
+            <button type="button" id="add-inverter" class="quiet">Ajouter un onduleur</button>
+            <p id="inventory-count" class="muted"></p>
+          </article>
+          <article class="card">
+            <h2>Radio APsystems</h2>
+            <div class="form-grid">
+              <label
+                >Mode<select name="mode">
+                  <option value="SNIFFER">SNIFFER · Écoute passive</option>
+                  <option value="NORMAL">NORMAL · Acquisition active</option>
+                </select></label
+              ><label>Canal 802.15.4<input name="channel" type="number" min="11" max="26" required /></label
+              ><label
+                >Identifiant ECU<input name="ecu" maxlength="12" pattern="[0-9a-fA-F]{12}" required /></label
+              ><label>PAN ID (décimal)<input name="pan" type="number" min="1" max="65534" required /></label
+              ><label
+                >Polling (secondes)<input
+                  name="pollSeconds"
+                  type="number"
+                  min="5"
+                  max="300"
+                  required /></label
+              ><label
+                >Journal<select name="logLevel">
+                  <option value="0">ERROR</option>
+                  <option value="1">WARN</option>
+                  <option value="2">INFO</option>
+                  <option value="3">DEBUG</option>
+                  <option value="4">TRACE</option>
+                </select></label
+              >
+            </div>
+            <p class="muted">
+              Le changement de mode s’applique après redémarrage. L’appairage est réservé au mode NORMAL.
+            </p>
+            <button type="button" id="pair-button" class="quiet">Appairer le premier onduleur de la liste</button>
+          </article>
+          <button class="save">Enregistrer et redémarrer</button>
+        </form>
+        <article class="card firmware">
+          <h2>Mise à jour du firmware</h2>
+          <p class="muted">
+            Sélectionnez opensolecu.bin pour ESP32-C6. La configuration et l’historique sont conservés.
+          </p>
+          <form id="ota-form" class="inline-form">
+            <input name="firmware" type="file" accept=".bin" required aria-label="Fichier firmware" /><button>
+              Installer la mise à jour
+            </button>
+          </form>
+          <progress id="ota-progress" max="100" value="0" hidden></progress>
+        </article>
+      </section>
+      <section id="system" class="page" hidden><div id="system-content" class="stats-grid"></div></section>
+      <section id="debug" class="page" hidden>
+        <article class="card">
+          <h2>Journal RAM</h2>
+          <p class="muted">ERROR · WARN · INFO · DEBUG · TRACE. Les traces ne sont pas écrites en Flash.</p>
+          <pre id="logs"></pre>
+        </article>
+      </section>
+      <footer>OpenSolECU <span>Mesurer. Comprendre. Garder le contrôle.</span></footer>
+    </main>
+    <dialog id="frame-dialog">
+      <div class="card-heading">
+        <h2>Détail de la trame</h2>
+        <button id="close-frame" class="quiet">Fermer</button>
+      </div>
+      <pre id="frame-detail"></pre>
+    </dialog>
+  </body>
+</html>
