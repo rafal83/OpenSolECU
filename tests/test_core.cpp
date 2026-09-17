@@ -111,10 +111,40 @@ static void fragments() {
         CHECK(r.add(other, out) == Outcome::Orphan); // different key: a brand-new, orphan slot.
         CHECK(r.add(last, out) == Outcome::Ready);   // original key unaffected: no collision.
     }
+    // Capacity: maxTransactions (8) distinct pending transactions coexist without evicting one
+    // another; only a 9th distinct one forces an eviction, and only the least-recently-touched
+    // slot (lowest monotonicUs) is the one that goes.
+    r = {};
+    std::array<CapturedFrame, APSReassembler::maxTransactions> firsts;
+    for (size_t i = 0; i < firsts.size(); i++) {
+        firsts[i] = first;
+        firsts[i].bytes[24] ^= uint8_t(i + 1); // distinct apsCounter per slot.
+        firsts[i].monotonicUs = 1000000 + uint64_t(i) * 1000;
+        CHECK(r.add(firsts[i], out) == Outcome::Pending);
+    }
+    auto ninth = first;
+    ninth.bytes[24] ^= 99;
+    ninth.monotonicUs = firsts.back().monotonicUs + 1000;
+    CHECK(r.add(ninth, out) == Outcome::Pending); // 9th key, all 8 slots full: evicts slot 0.
+    // Slots 1..7 were untouched by that eviction: each still completes normally. Check this
+    // before touching slot 0 again below -- completing a matching slot never evicts anything
+    // (only a *fresh*, non-matching key can), so this loop alone can't perturb slots 1..7.
+    for (size_t i = 1; i < firsts.size(); i++) {
+        auto lastVariant = last;
+        lastVariant.bytes[24] ^= uint8_t(i + 1);
+        lastVariant.monotonicUs = ninth.monotonicUs + uint64_t(i) * 100 + 100;
+        CHECK(r.add(lastVariant, out) == Outcome::Ready);
+    }
+    // Slot 0's original context is gone: completing it now looks like a fresh continuation
+    // with no known first fragment, never a silent success.
+    auto lastForFirst0 = last;
+    lastForFirst0.bytes[24] ^= uint8_t(1);
+    lastForFirst0.monotonicUs = ninth.monotonicUs + 8 * 100 + 200;
+    CHECK(r.add(lastForFirst0, out) != Outcome::Ready);
     r = {};
     CHECK(r.add(first, out) == Outcome::Pending);
     auto late = last;
-    late.monotonicUs += 11000000;
+    late.monotonicUs += APSReassembler::timeoutUs + 1000000; // 1s past the timeout, not 10s flat.
     CHECK(r.add(late, out) == Outcome::Orphan); // original slot timed out; late opens a new one.
     CHECK(r.stats().timeouts == 1);
     r = {};

@@ -52,6 +52,16 @@ struct APSPayload {
 };
 class APSReassembler {
   public:
+    // Bounded, fixed-size concurrent-transaction budget (no dynamic allocation). 8 slots (up
+    // from an earlier 4) gives headroom for bursts across multiple mesh-relayed sources
+    // without meaningfully increasing static RAM (~650 bytes/slot, so +4 slots is ~2.6KB per
+    // APSReassembler instance).
+    static constexpr size_t maxTransactions = 8;
+    // How long a transaction may sit without a new fragment before it's evicted as stale.
+    // 20s comfortably covers slower multi-hop relay completion while staying far shorter
+    // than observed ECU poll cycles (minutes apart), so it can't blend fragments from two
+    // different polling rounds.
+    static constexpr uint64_t timeoutUs = 20000000;
     enum class Outcome : uint8_t {
         Ready,     // out is populated: a non-fragmented frame, or reassembly just completed.
         Pending,   // fragment accepted, transaction still incomplete.
@@ -80,7 +90,7 @@ class APSReassembler {
         std::array<uint8_t, 4> lengths{};
         std::array<std::array<uint8_t, 125>, 4> blocks{};
     };
-    std::array<Message, 4> messages_{};
+    std::array<Message, maxTransactions> messages_{};
     Stats stats_{};
 };
 // Physical (macSrc), logical (srcPan/nwkSrc) and mesh-relay observability, kept strictly

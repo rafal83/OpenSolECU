@@ -226,7 +226,7 @@ APSReassembler::Outcome APSReassembler::add(const CapturedFrame &frame, APSPaylo
     bool isFirst = h.fragmentation == 1;
     Message *m = nullptr;
     for (auto &v : messages_) {
-        if (v.used && (frame.monotonicUs < v.lastUs || frame.monotonicUs - v.lastUs > 10000000)) {
+        if (v.used && (frame.monotonicUs < v.lastUs || frame.monotonicUs - v.lastUs > timeoutUs)) {
             if (!v.completed) {
                 ++stats_.timeouts;
                 if (onTimeout)
