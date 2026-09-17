@@ -3,6 +3,7 @@ sdkconfig
 sdkconfig.old
 reference/
 managed_components/
+.vscode/
 __pycache__/
 tests/*.exe
 tests/*.obj
