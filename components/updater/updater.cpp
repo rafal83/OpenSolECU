@@ -139,6 +139,13 @@ bool installUpdate() {
     httpConfig.user_agent = userAgent;
     httpConfig.timeout_ms = 30000;
     httpConfig.keep_alive_enable = true;
+    // GitHub's release redirect points to a signed release-assets.githubusercontent.com URL
+    // whose query string (sp=/sv=/sr=/sig=/jwt=...) alone is several hundred bytes; the request
+    // *line* (method+path+query) is built in buffer_size_tx, not buffer_size, and overflows the
+    // default 512 bytes ("HTTP_CLIENT: Out of buffer", confirmed against a real release asset).
+    // Both are heap, not flash, so generous headroom costs nothing at rest.
+    httpConfig.buffer_size = 8192;
+    httpConfig.buffer_size_tx = 8192;
     esp_https_ota_config_t otaConfig = {};
     otaConfig.http_config = &httpConfig;
     log(2, "Installing update from %s", url);
@@ -194,6 +201,7 @@ bool updaterInstall() {
 cJSON *updaterJson() {
     Guard g(stateMutex);
     auto j = cJSON_CreateObject();
+    cJSON_AddStringToObject(j, "currentVersion", esp_app_get_description()->version);
     cJSON_AddBoolToObject(j, "checked", state.checked);
     cJSON_AddBoolToObject(j, "available", state.available);
     cJSON_AddBoolToObject(j, "installing", otaBusy());

@@ -351,13 +351,20 @@ function drawChart() {
   const minTime = chartRows[0].timestamp,
     maxTime = chartRows.at(-1).timestamp;
   const x = (i) => left + ((right - left) * (chartRows[i].timestamp - minTime)) / Math.max(60, maxTime - minTime);
-  for (const [key, color, channel] of [
-    ["totalPower", "#285e3c", -1],
-    ["channels", "#8eb36b", 0],
-    ["channels", "#d4a86d", 1],
-    ["channels", "#5b8fb9", 2],
-    ["channels", "#b06d9d", 3],
-  ]) {
+  // Summing PV1..PV4 across inverters of different models has no physical meaning, so the
+  // combined ("all") view only ever draws the total.
+  const combined = selectedSerial === "all";
+  for (const el of $$(".legend-pv")) el.hidden = combined;
+  const lines = combined
+    ? [["totalPower", "#285e3c", -1]]
+    : [
+        ["totalPower", "#285e3c", -1],
+        ["channels", "#8eb36b", 0],
+        ["channels", "#d4a86d", 1],
+        ["channels", "#5b8fb9", 2],
+        ["channels", "#b06d9d", 3],
+      ];
+  for (const [key, color, channel] of lines) {
     c.beginPath();
     c.strokeStyle = color;
     c.lineWidth = channel < 0 ? 2.3 : 1.5;
@@ -396,21 +403,19 @@ function metric(label, value, unit = "") {
 function renderUpdate(u) {
   $("#update-install").hidden = !u.available;
   $("#update-banner").hidden = !u.available;
+  const installed = `Version installée : ${u.currentVersion || "?"}.`;
   if (u.available) {
     $("#update-banner-text").textContent = `Nouvelle version ${u.latestVersion} disponible.`;
     set(
       "update-status",
-      `Version ${u.latestVersion} disponible${u.installing ? " · installation en cours…" : "."}`,
+      `${installed} Version ${u.latestVersion} disponible${u.installing ? " · installation en cours…" : "."}`,
     );
   } else if (u.installing) {
-    set("update-status", "Installation en cours…");
+    set("update-status", `${installed} Installation en cours…`);
   } else if (u.checked) {
-    set(
-      "update-status",
-      u.error ? `Dernière vérification échouée : ${u.error}` : "Firmware à jour.",
-    );
+    set("update-status", `${installed} ${u.error ? `Dernière vérification échouée : ${u.error}` : "Firmware à jour."}`);
   } else {
-    set("update-status", "Vérification non effectuée.");
+    set("update-status", installed);
   }
   $("#update-check").disabled = u.installing;
   $("#update-install").disabled = u.installing;
