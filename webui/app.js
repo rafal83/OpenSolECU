@@ -1,10 +1,13 @@
 "use strict";
 const $ = (s) => document.querySelector(s),
   $$ = (s) => [...document.querySelectorAll(s)];
+const dateKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const todayKey = () => dateKey(new Date());
 let page = "",
   stream = null,
-  range = "today",
+  chartDate = todayKey(),
   chartRows = [],
+  chartResolution = 0,
   frameBuffer = [],
   frameCursor = 0,
   lastSniffer = null,
@@ -279,19 +282,46 @@ function openStream(sniffer = false) {
   stream.onerror = () => set("connection", "Reconnexion…");
 }
 async function history() {
-  const data = await api("/api/history?range=" + range + "&serial=" + encodeURIComponent(selectedSerial));
+  const data = await api(
+    "/api/history?date=" + chartDate.replace(/-/g, "") + "&serial=" + encodeURIComponent(selectedSerial),
+  );
   chartRows = data.records;
+  chartResolution = data.resolution;
   drawChart();
+  const detailed = chartResolution === 1 || chartResolution === 2;
   set(
     "chart-note",
-    chartRows.length
-      ? `${chartRows.length} points mesurés · ${range === "today" ? "Puissance en W par entrée PV" : "Énergie en kWh"} · Les périodes sans données restent inconnues.`
-      : "Aucune mesure pour cette période. Une heure NTP valide est nécessaire pour dater l’historique.",
+    !chartRows.length
+      ? "Aucune mesure pour ce jour. Une heure NTP valide est nécessaire pour dater l’historique."
+      : detailed
+        ? `${chartRows.length} points mesurés · Puissance en W par entrée PV · Les périodes sans données restent inconnues.`
+        : "Détail indisponible pour ce jour (anneau minute/quart d’heure déjà écrasé) · résumé consolidé ci-dessous.",
   );
 }
 function drawChart() {
   const canvas = $("#production-chart"),
-    rect = canvas.getBoundingClientRect();
+    legend = $("#chart-legend"),
+    summary = $("#chart-summary");
+  const detailed = chartResolution === 1 || chartResolution === 2;
+  const consolidated = chartResolution === 3;
+  canvas.style.display = detailed ? "block" : "none";
+  legend.style.display = detailed ? "flex" : "none";
+  summary.style.display = consolidated ? "grid" : "none";
+  if (consolidated) {
+    const r = chartRows[0];
+    const energy = energyDisplay(r.energyWh);
+    const peakTile = Number.isFinite(r.peak)
+      ? metric(
+          "Pic de puissance",
+          fmt(r.peak, 0),
+          `W à ${new Date(r.peakTime * 1000).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`,
+        )
+      : metric("Pic de puissance", "—", "non disponible (plusieurs onduleurs combinés)");
+    summary.replaceChildren(metric("Énergie du jour", energy.value, energy.unit), peakTile);
+    return;
+  }
+  if (!detailed) return;
+  const rect = canvas.getBoundingClientRect();
   if (!rect.width) return;
   const ratio = devicePixelRatio || 1;
   canvas.width = rect.width * ratio;
@@ -299,17 +329,15 @@ function drawChart() {
   const c = canvas.getContext("2d");
   c.scale(ratio, ratio);
   const w = rect.width,
-    h = 255,
     left = 46,
     right = w - 12,
     top = 20,
     bottom = 220;
-  c.clearRect(0, 0, w, h);
+  c.clearRect(0, 0, w, 255);
   c.font = "10px system-ui";
   c.fillStyle = "#87927c";
-  const daily = range === "today";
-  const values = chartRows.map((r) => (daily ? r.totalPower : r.energyWh / 1000)).filter(Number.isFinite);
-  const max = Math.max(daily ? 100 : 1, ...values) * 1.15;
+  const values = chartRows.map((r) => r.totalPower).filter(Number.isFinite);
+  const max = Math.max(100, ...values) * 1.15;
   for (let i = 0; i < 5; i++) {
     const y = bottom - ((bottom - top) * i) / 4;
     c.strokeStyle = "#edf0e7";
@@ -319,57 +347,37 @@ function drawChart() {
     c.stroke();
     c.fillText(fmt((max * i) / 4, 0), 2, y + 3);
   }
-  if (!chartRows.length) {
-    c.fillText("Les premières mesures apparaîtront ici.", left + 20, 130);
-    return;
-  }
+  if (!chartRows.length) return;
   const minTime = chartRows[0].timestamp,
     maxTime = chartRows.at(-1).timestamp;
-  const x = (i) =>
-    daily
-      ? left + ((right - left) * (chartRows[i].timestamp - minTime)) / Math.max(60, maxTime - minTime)
-      : left + ((right - left) * (i + 0.5)) / chartRows.length;
-  if (daily) {
-    for (const [key, color, channel] of [
-      ["totalPower", "#285e3c", -1],
-      ["channels", "#8eb36b", 0],
-      ["channels", "#d4a86d", 1],
-      ["channels", "#5b8fb9", 2],
-      ["channels", "#b06d9d", 3],
-    ]) {
-      c.beginPath();
-      c.strokeStyle = color;
-      c.lineWidth = channel < 0 ? 2.3 : 1.5;
-      let previous = false;
-      chartRows.forEach((r, i) => {
-        const value = channel < 0 ? r[key] : r.channels?.[channel];
-        if (!Number.isFinite(value)) {
-          previous = false;
-          return;
-        }
-        const y = bottom - (value / max) * (bottom - top);
-        if (!previous || (i && r.timestamp - chartRows[i - 1].timestamp > 90)) c.moveTo(x(i), y);
-        else c.lineTo(x(i), y);
-        previous = true;
-      });
-      c.stroke();
-    }
-  } else {
-    const bw = Math.max(2, ((right - left) / chartRows.length) * 0.57);
+  const x = (i) => left + ((right - left) * (chartRows[i].timestamp - minTime)) / Math.max(60, maxTime - minTime);
+  for (const [key, color, channel] of [
+    ["totalPower", "#285e3c", -1],
+    ["channels", "#8eb36b", 0],
+    ["channels", "#d4a86d", 1],
+    ["channels", "#5b8fb9", 2],
+    ["channels", "#b06d9d", 3],
+  ]) {
+    c.beginPath();
+    c.strokeStyle = color;
+    c.lineWidth = channel < 0 ? 2.3 : 1.5;
+    let previous = false;
     chartRows.forEach((r, i) => {
-      const y = bottom - (r.energyWh / 1000 / max) * (bottom - top);
-      c.fillStyle = "#6e9455";
-      c.fillRect(x(i) - bw / 2, y, bw, bottom - y);
+      const value = channel < 0 ? r[key] : r.channels?.[channel];
+      if (!Number.isFinite(value)) {
+        previous = false;
+        return;
+      }
+      const y = bottom - (value / max) * (bottom - top);
+      if (!previous || (i && r.timestamp - chartRows[i - 1].timestamp > 90)) c.moveTo(x(i), y);
+      else c.lineTo(x(i), y);
+      previous = true;
     });
+    c.stroke();
   }
   for (let i = 0; i < chartRows.length; i += Math.max(1, Math.ceil(chartRows.length / 6))) {
     const d = new Date(chartRows[i].timestamp * 1000);
-    const text = daily
-      ? d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
-      : range === "12m"
-        ? d.toLocaleDateString("fr-FR", { month: "short" })
-        : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
-    c.fillText(text, x(i) - 13, 246);
+    c.fillText(d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }), x(i) - 13, 246);
   }
 }
 function metric(label, value, unit = "") {
@@ -384,6 +392,29 @@ function metric(label, value, unit = "") {
   small.textContent = unit;
   el.append(title, strong, small);
   return el;
+}
+function renderUpdate(u) {
+  $("#update-install").hidden = !u.available;
+  $("#update-banner").hidden = !u.available;
+  if (u.available) {
+    $("#update-banner-text").textContent = `Nouvelle version ${u.latestVersion} disponible.`;
+    set(
+      "update-status",
+      `Version ${u.latestVersion} disponible${u.installing ? " · installation en cours…" : "."}`,
+    );
+  } else if (u.installing) {
+    set("update-status", "Installation en cours…");
+  } else if (u.checked) {
+    set(
+      "update-status",
+      u.error ? `Dernière vérification échouée : ${u.error}` : "Firmware à jour.",
+    );
+  } else {
+    set("update-status", "Vérification non effectuée.");
+  }
+  $("#update-check").disabled = u.installing;
+  $("#update-install").disabled = u.installing;
+  $("#update-banner-install").disabled = u.installing;
 }
 async function stats() {
   if (!latestInverters.length) {
@@ -433,6 +464,7 @@ async function settings() {
   $("#inventory-editor").replaceChildren();
   for (const v of config.inverters || []) inventoryRow(v);
   inventoryCount();
+  api("/api/update").then(renderUpdate).catch(() => {});
 }
 function showObject(title, obj) {
   const card = document.createElement("article");
@@ -743,12 +775,39 @@ for (const id of ["history-inverter", "stats-inverter"])
     if (page === "dashboard") await history();
     else await stats();
   });
-$("#ranges").onclick = action(async (e) => {
-  if (!e.target.dataset.range) return;
-  range = e.target.dataset.range;
-  for (const b of $$("#ranges button")) b.classList.toggle("selected", b === e.target);
+function syncDateNav() {
+  $("#date-pick").value = chartDate;
+  $("#date-pick").max = todayKey();
+  $("#date-next").disabled = chartDate >= todayKey();
+}
+function shiftDate(days) {
+  const d = new Date(chartDate + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  const key = dateKey(d);
+  return key > todayKey() ? todayKey() : key;
+}
+$("#date-pick").onchange = action(async (e) => {
+  if (!e.target.value) return;
+  chartDate = e.target.value > todayKey() ? todayKey() : e.target.value;
+  syncDateNav();
   await history();
 });
+$("#date-prev").onclick = action(async () => {
+  chartDate = shiftDate(-1);
+  syncDateNav();
+  await history();
+});
+$("#date-next").onclick = action(async () => {
+  chartDate = shiftDate(1);
+  syncDateNav();
+  await history();
+});
+$("#date-today").onclick = action(async () => {
+  chartDate = todayKey();
+  syncDateNav();
+  await history();
+});
+syncDateNav();
 $("#wifi-scan").onclick = action(async () => {
   set("wifi-scan-result", "Recherche…");
   let s = await api("/api/wifi/scan");
@@ -804,6 +863,21 @@ $("#ota-form").onsubmit = action(async (e) => {
   xhr.onerror = () => notice("Connexion interrompue pendant la mise à jour.");
   xhr.send(file);
 });
+async function installUpdate() {
+  $("#update-check").disabled = $("#update-install").disabled = $("#update-banner-install").disabled = true;
+  set("update-status", "Installation en cours…");
+  try {
+    const result = await post("/api/update/install", {});
+    notice(result.message);
+    setTimeout(() => location.reload(), 12000);
+  } catch (e) {
+    notice(e.message);
+    renderUpdate(await api("/api/update"));
+  }
+}
+$("#update-check").onclick = action(async () => renderUpdate(await post("/api/update/check", {})));
+$("#update-install").onclick = action(installUpdate);
+$("#update-banner-install").onclick = action(installUpdate);
 for (let ch = 11; ch <= 26; ch++) {
   const o = document.createElement("option");
   o.value = ch;
@@ -854,7 +928,8 @@ setInterval(() => {
   if (page === "system") system().catch(() => {});
 }, 15000);
 setInterval(() => {
-  if (page === "dashboard" && !document.hidden) history().catch(() => {});
+  // Past days are static once fetched; only the day still being measured needs refreshing.
+  if (page === "dashboard" && !document.hidden && chartDate === todayKey()) history().catch(() => {});
 }, 60000);
 api("/api/config")
   .then((c) => {
@@ -873,4 +948,5 @@ api("/api/config")
     }
   })
   .catch((e) => notice(e.message));
+api("/api/update").then(renderUpdate).catch(() => {});
 navigate();

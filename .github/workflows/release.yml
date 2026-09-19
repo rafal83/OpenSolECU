@@ -1,0 +1,52 @@
+name: Build and release firmware
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: espressif/idf:v5.5.1
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Calendar version like Home Assistant / ESPHome: YYYY.MONTH.PATCH. PATCH is the workflow
+      # run number, so it only ever increases (never resets, never collides across months).
+      - name: Compute version
+        id: version
+        run: |
+          version="$(date +%Y).$(date +%-m).${{ github.run_number }}"
+          echo "$version" > version.txt
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # 4 MB flash, NORMAL-capable (sdkconfig.4mb only overrides flash size / partition table on
+      # top of sdkconfig.defaults; it does not set CONFIG_OPENSOLECU_FORCE_SNIFFER).
+      - name: Build firmware
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.4mb" build
+
+      # The updater component (components/updater/updater.cpp) looks for an asset with exactly
+      # this name in the latest GitHub release. Keep the two in sync if this ever changes.
+      - name: Rename firmware artifact
+        run: cp build/opensolecu.bin opensolecu-4mb.bin
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opensolecu-4mb-${{ steps.version.outputs.version }}
+          path: opensolecu-4mb.bin
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: opensolecu-4mb.bin

@@ -42,146 +42,19 @@ cJSON *recordJson(const Record &r) {
     cJSON_AddBoolToObject(j, "simulated", r.flags & 1);
     return j;
 }
-std::vector<Record> dailyHistory(unsigned days, bool monthly, const char *serial) {
-    auto primary = configGet();
-    if (!serial)
-        serial = primary.serial;
-    std::vector<Record> rows;
-    time_t now = time(nullptr);
-    if (now < 1704067200)
-        return rows;
-    tm start{};
-    localtime_r(&now, &start);
-    start.tm_hour = start.tm_min = start.tm_sec = 0;
-    if (monthly) {
-        start.tm_mday = 1;
-        start.tm_mon -= 11;
-    } else
-        start.tm_mday -= days - 1;
-    start.tm_isdst = -1;
-    time_t from = mktime(&start);
-    storageVisit(Resolution::Day, [&](const Record &r) {
-        if (!strcmp(r.serial, serial) && r.timestamp >= uint64_t(from) && r.timestamp <= uint64_t(now))
-            rows.push_back(r);
-        return true;
-    });
-    auto t = fleetTotals(serial);
-    if (t.day == dayKey(now)) {
-        Record today;
-        strncpy(today.serial, serial, 12);
-        today.timestamp = dayStart(now);
-        today.day = t.day;
-        today.resolution = Resolution::Day;
-        today.energyWh = t.dayWh;
-        today.peak = t.peak;
-        today.peakTime = t.peakTime;
-        rows.push_back(today);
-    }
-    std::sort(rows.begin(), rows.end(),
-              [](const Record &a, const Record &b) { return a.timestamp < b.timestamp; });
-    // Only measured days are returned. Missing days never become fabricated zero energy.
-    if (monthly) {
-        std::vector<Record> months;
-        for (auto &r : rows) {
-            int key = r.day / 100;
-            if (months.empty() || months.back().day != key) {
-                Record m;
-                strncpy(m.serial, serial, 12);
-                m.day = key;
-                time_t epoch = r.timestamp;
-                tm date{};
-                localtime_r(&epoch, &date);
-                date.tm_mday = 1;
-                date.tm_isdst = -1;
-                m.timestamp = mktime(&date);
-                m.resolution = Resolution::Day;
-                months.push_back(m);
-            }
-            months.back().energyWh += r.energyWh;
-        }
-        return months;
-    }
-    return rows;
-}
-std::vector<Record> dailyHistoryAll(unsigned days, bool monthly) {
+std::vector<Record> intradayHistoryAll(Resolution resolution, uint64_t start, uint64_t end) {
     auto inventory = configInventory();
-    std::vector<Record> rows;
-    time_t now = time(nullptr);
-    if (now < 1704067200)
-        return rows;
-    tm start{};
-    localtime_r(&now, &start);
-    start.tm_hour = start.tm_min = start.tm_sec = 0;
-    if (monthly) {
-        start.tm_mday = 1;
-        start.tm_mon -= 11;
-    } else
-        start.tm_mday -= days - 1;
-    start.tm_isdst = -1;
-    time_t from = mktime(&start);
-    std::map<uint64_t, double> byTimestamp;
-    std::map<uint64_t, int32_t> dayOf;
-    for (size_t i = 0; i < inventory.count; i++) {
-        const char *serial = inventory.entries[i].serial;
-        storageVisit(Resolution::Day, [&](const Record &r) {
-            if (!strcmp(r.serial, serial) && r.timestamp >= uint64_t(from) && r.timestamp <= uint64_t(now)) {
-                byTimestamp[r.timestamp] += r.energyWh;
-                dayOf[r.timestamp] = r.day;
-            }
-            return true;
-        });
-        auto t = fleetTotals(serial);
-        if (t.day == dayKey(now)) {
-            uint64_t ts = dayStart(now);
-            byTimestamp[ts] += t.dayWh;
-            dayOf[ts] = t.day;
-        }
-    }
-    for (auto &entry : byTimestamp) {
-        Record r;
-        r.timestamp = entry.first;
-        r.day = dayOf[entry.first];
-        r.resolution = Resolution::Day;
-        r.energyWh = entry.second;
-        rows.push_back(r);
-    }
-    // byTimestamp is a std::map, so rows are already ordered by timestamp.
-    if (monthly) {
-        std::vector<Record> months;
-        for (auto &r : rows) {
-            int key = r.day / 100;
-            if (months.empty() || months.back().day != key) {
-                Record m;
-                m.day = key;
-                time_t epoch = r.timestamp;
-                tm date{};
-                localtime_r(&epoch, &date);
-                date.tm_mday = 1;
-                date.tm_isdst = -1;
-                m.timestamp = mktime(&date);
-                m.resolution = Resolution::Day;
-                months.push_back(m);
-            }
-            months.back().energyWh += r.energyWh;
-        }
-        return months;
-    }
-    return rows;
-}
-std::vector<Record> minuteHistoryAllToday() {
-    auto inventory = configInventory();
-    uint64_t start = dayStart(time(nullptr));
     struct Bucket {
         std::array<double, maxChannels> power{};
         std::array<bool, maxChannels> have{};
         uint8_t channelCount = 0;
     };
-    std::map<uint64_t, Bucket> byMinute;
+    std::map<uint64_t, Bucket> byTimestamp;
     for (size_t i = 0; i < inventory.count; i++) {
         const char *serial = inventory.entries[i].serial;
-        storageVisit(Resolution::Minute, [&](const Record &r) {
-            if (!strcmp(r.serial, serial) && r.timestamp >= start) {
-                auto &b = byMinute[r.timestamp];
+        storageVisit(resolution, [&](const Record &r) {
+            if (!strcmp(r.serial, serial) && r.timestamp >= start && r.timestamp < end) {
+                auto &b = byTimestamp[r.timestamp];
                 b.channelCount = std::max(b.channelCount, r.channelCount);
                 for (size_t channel = 0; channel < r.channelCount; channel++) {
                     if (std::isfinite(r.channels[channel])) {
@@ -194,11 +67,11 @@ std::vector<Record> minuteHistoryAllToday() {
         });
     }
     std::vector<Record> rows;
-    rows.reserve(byMinute.size());
-    for (auto &entry : byMinute) {
+    rows.reserve(byTimestamp.size());
+    for (auto &entry : byTimestamp) {
         Record r;
         r.timestamp = entry.first;
-        r.resolution = Resolution::Minute;
+        r.resolution = resolution;
         r.channelCount = entry.second.channelCount;
         for (size_t channel = 0; channel < r.channelCount; channel++)
             r.channels[channel] =
@@ -206,6 +79,73 @@ std::vector<Record> minuteHistoryAllToday() {
         rows.push_back(r);
     }
     return rows;
+}
+bool consolidatedDay(int32_t day, const char *serial, Record &out) {
+    auto primary = configGet();
+    if (!serial)
+        serial = primary.serial;
+    time_t now = time(nullptr);
+    // Today's Day record is only flushed to flash on rollover to the next day (see
+    // Aggregator::add), so today must be synthesized from the live running totals instead.
+    if (day == dayKey(now)) {
+        auto t = fleetTotals(serial);
+        if (t.day != day)
+            return false;
+        out = {};
+        strncpy(out.serial, serial, 12);
+        out.timestamp = dayStart(now);
+        out.day = t.day;
+        out.resolution = Resolution::Day;
+        out.energyWh = t.dayWh;
+        out.peak = t.peak;
+        out.peakTime = t.peakTime;
+        return true;
+    }
+    bool found = false;
+    storageVisit(Resolution::Day, [&](const Record &r) {
+        if (!strcmp(r.serial, serial) && r.day == day) {
+            out = r;
+            found = true;
+        }
+        return !found;
+    });
+    return found;
+}
+bool consolidatedDayAll(int32_t day, Record &out) {
+    auto inventory = configInventory();
+    time_t now = time(nullptr);
+    double totalWh = 0;
+    bool any = false;
+    if (day == dayKey(now)) {
+        for (size_t i = 0; i < inventory.count; i++) {
+            auto t = fleetTotals(inventory.entries[i].serial);
+            if (t.day == day) {
+                totalWh += t.dayWh;
+                any = true;
+            }
+        }
+    } else {
+        for (size_t i = 0; i < inventory.count; i++) {
+            const char *serial = inventory.entries[i].serial;
+            bool found = false;
+            storageVisit(Resolution::Day, [&](const Record &r) {
+                if (!strcmp(r.serial, serial) && r.day == day) {
+                    totalWh += r.energyWh;
+                    any = found = true;
+                }
+                return !found;
+            });
+        }
+    }
+    if (!any)
+        return false;
+    out = {};
+    out.day = day;
+    out.timestamp = dayStartFromKey(day);
+    out.resolution = Resolution::Day;
+    out.energyWh = totalWh;
+    out.peak = missing;
+    return true;
 }
 cJSON *statsJson(const char *serial) {
     auto primary = configGet();

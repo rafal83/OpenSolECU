@@ -8,6 +8,7 @@ void serialConsoleBegin();
 #include "sniffer.hpp"
 #include "storage.hpp"
 #include "time_manager.hpp"
+#include "updater.hpp"
 #include "web_server.hpp"
 #include "wifi_manager.hpp"
 extern "C" void app_main() {
@@ -22,7 +23,7 @@ extern "C" void app_main() {
         return;
     }
     sol::timeBegin();
-    if (!sol::fleetBegin() || !sol::acquisitionBegin() || !sol::webBegin()) {
+    if (!sol::fleetBegin() || !sol::acquisitionBegin() || !sol::webBegin() || !sol::updaterBegin()) {
         sol::log(0, "Application initialization failed");
         return;
     }

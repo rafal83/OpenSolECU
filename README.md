@@ -85,6 +85,19 @@ Le flash initial écrit le bootloader, la table de partitions, otadata et app0.
 Pour les mises à jour ultérieures, préférer l'OTA afin de conserver l'emplacement
 actif et les données. Ne pas changer de table de partitions sans sauvegarde.
 
+## Version et publication
+
+Le numéro de version (`esp_app_desc_t.version`, exposé par `/api/system`) vient de
+`version.txt` à la racine, lu par `CMakeLists.txt` avant `project()`. En local ce
+fichier reste à `0.0.0-dev` ; `.github/workflows/release.yml` l'écrase avec un
+calendaire `AAAA.M.PATCH` (`PATCH` = numéro de run du workflow, jamais réutilisé)
+à chaque push sur `main`, build la variante 4 Mo (`sdkconfig.defaults` +
+`sdkconfig.4mb`) et publie une GitHub Release avec `opensolecu-4mb.bin` en asset.
+Le firmware compare sa propre version à celle de la dernière release via l'API
+GitHub (voir [docs/api.md](docs/api.md#mises-à-jour)) — garder le nom de l'asset
+synchronisé entre le workflow et `components/updater/updater.cpp` si l'un des
+deux change.
+
 ## Premier démarrage et deux accès simultanés
 
 Le mot de passe Wi-Fi AP initial est fixe (`OpenSolECU26`). Le port USB série
@@ -140,15 +153,21 @@ chaque onduleur ; les valeurs manquantes restent inconnues. [Détails multi-PV](
 
 - Dashboard : une carte par onduleur et ses deux ou quatre PV, tension/fréquence AC, température,
   dernière mesure. Une puissance partielle est explicitement indiquée.
-- Graphiques : sélection de l'onduleur, courbes du jour, énergie 7/30 jours, 12 mois.
+- Graphiques : sélection de l'onduleur, navigation par jour via un calendrier ; repli sur le
+  résumé consolidé (énergie du jour, pic) quand le détail minute/quart d'heure n'est plus disponible.
 - Statistiques : énergie mesurée, pic, moyenne des journées terminées, meilleure journée.
 - Export CSV : UTF-8 avec BOM, séparateur `;`, unités dans l'en-tête ; `from/to`
   sont des secondes Unix UTC. Résolutions `minute`, `15min`, `day`.
 - Sauvegarde JSON : format, configuration expurgée, historique et statistiques.
   Aucun mot de passe ni hash d'administration. La restauration automatique d'une
   sauvegarde JSON n'est pas exposée en V1.
-- OTA : Réglages → Mise à jour, charger uniquement `opensolecu.bin` ESP32-C6.
+- OTA manuel : Réglages → Mise à jour manuelle, charger `opensolecu.bin` ESP32-C6.
   Deux partitions OTA, validation ESP-IDF, rollback si démarrage non validé.
+- Mise à jour automatique : le firmware vérifie `github.com/rafal83/OpenSolECU`
+  (releases) toutes les 6 h et affiche un bandeau + un bouton « Installer » dès
+  qu'une version plus récente est disponible ; aucun flash sans clic explicite.
+  Versions calendaires `AAAA.M.PATCH` (façon Home Assistant/ESPHome), publiées
+  automatiquement par `.github/workflows/release.yml` à chaque merge sur `main`.
 - Journal : `/debug`, RAM seulement ; choisir TRACE pour les trames actives.
 - Sniffer : `/debug/sniffer`, 256 trames en RAM, navigateur limité à 200 trames.
 - Aucun CDN, police distante, MQTT ou Home Assistant. HTML/CSS/JS compressés

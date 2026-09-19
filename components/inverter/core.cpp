@@ -80,6 +80,14 @@ time_t dayStart(time_t t) {
     d.tm_isdst = -1;
     return mktime(&d);
 }
+time_t dayStartFromKey(int32_t day) {
+    tm d{};
+    d.tm_year = day / 10000 - 1900;
+    d.tm_mon = (day / 100) % 100 - 1;
+    d.tm_mday = day % 100;
+    d.tm_isdst = -1;
+    return mktime(&d);
+}
 static uint16_t be16(const uint8_t *p) {
     return (uint16_t(p[0]) << 8) | p[1];
 }

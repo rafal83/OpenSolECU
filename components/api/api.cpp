@@ -12,6 +12,7 @@
 #include "statistics.hpp"
 #include "storage.hpp"
 #include "time_manager.hpp"
+#include "updater.hpp"
 #include "wifi_manager.hpp"
 #include <atomic>
 #include <cstdlib>
@@ -19,7 +20,6 @@
 
 namespace sol {
 static std::atomic<unsigned> eventClients{0};
-static std::atomic<bool> updating{false};
 static esp_err_t json(httpd_req_t *req, cJSON *j, size_t prebuffer = 512) {
     if (!j)
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
@@ -95,7 +95,7 @@ static cJSON *systemJson() {
     cJSON_AddBoolToObject(j, "timeValid", timeValid());
     cJSON_AddStringToObject(j, "timezone", configGet().timezone);
     cJSON_AddStringToObject(j, "mode", snifferActive() ? "SNIFFER" : "NORMAL");
-    cJSON_AddBoolToObject(j, "updating", updating);
+    cJSON_AddBoolToObject(j, "updating", otaBusy());
     uint32_t size = 0;
     esp_flash_get_size(nullptr, &size);
     cJSON_AddNumberToObject(j, "flashBytes", size);
@@ -114,49 +114,70 @@ static bool chunkJson(httpd_req_t *req, cJSON *j) {
     cJSON_free(s);
     return err == ESP_OK;
 }
+static std::vector<Record> intradaySingle(Resolution resolution, const char *serial, uint64_t start,
+                                          uint64_t end) {
+    std::vector<Record> rows;
+    storageVisit(resolution, [&](const Record &r) {
+        if (!strcmp(r.serial, serial) && r.timestamp >= start && r.timestamp < end)
+            rows.push_back(r);
+        return true;
+    });
+    return rows;
+}
+// One calendar day: Minute records if the ring still holds them, else Quarter, else a single
+// consolidated Day record (older days only survive as that rollup once the finer rings evict them).
 static esp_err_t history(httpd_req_t *req) {
     auto serial = query(req, "serial", configGet().serial);
     bool all = serial == "all";
     uint8_t id[6];
     if (!all && !serial.empty() && !parseHex(serial.c_str(), id, 6))
         return error(req, "400 Bad Request", "Invalid serial");
-    auto range = query(req, "range", "today");
-    if (range != "today" && range != "7d" && range != "30d" && range != "12m")
-        return error(req, "400 Bad Request", "range must be today, 7d, 30d or 12m");
+    auto dateParam = query(req, "date", "");
+    time_t now = time(nullptr);
+    int32_t day = dayKey(now);
+    if (!dateParam.empty()) {
+        if (dateParam.size() != 8 || dateParam.find_first_not_of("0123456789") != std::string::npos)
+            return error(req, "400 Bad Request", "date must be YYYYMMDD");
+        day = atoi(dateParam.c_str());
+    }
+    uint64_t start = uint64_t(dayStartFromKey(day));
+    if (start < 1704067200 || start > uint64_t(now))
+        return error(req, "400 Bad Request", "date out of range");
+    uint64_t end = start + 86400;
+    std::vector<Record> rows;
+    Resolution resolution = Resolution::Minute;
+    for (auto res : {Resolution::Minute, Resolution::Quarter}) {
+        rows = all ? intradayHistoryAll(res, start, end) : intradaySingle(res, serial.c_str(), start, end);
+        if (!rows.empty()) {
+            resolution = res;
+            break;
+        }
+    }
+    if (rows.empty()) {
+        Record consolidated;
+        bool found = all ? consolidatedDayAll(day, consolidated) : consolidatedDay(day, serial.c_str(), consolidated);
+        if (found) {
+            rows.push_back(consolidated);
+            resolution = Resolution::Day;
+        }
+    }
     httpd_resp_set_type(req, "application/json");
-    if (httpd_resp_send_chunk(req, "{\"records\":[", 12) != ESP_OK)
+    char header[48];
+    int n = snprintf(header, sizeof(header), "{\"date\":%ld,\"resolution\":%d,\"records\":[", long(day),
+                     rows.empty() ? 0 : int(resolution));
+    if (httpd_resp_send_chunk(req, header, n) != ESP_OK)
         return ESP_FAIL;
     bool first = true, success = true;
-    auto emit = [&](const Record &r) {
-        if (!first && httpd_resp_send_chunk(req, ",", 1) != ESP_OK)
-            return false;
-        first = false;
-        return chunkJson(req, recordJson(r));
-    };
-    if (range == "today") {
-        if (all) {
-            for (auto &r : minuteHistoryAllToday())
-                if (!emit(r)) {
-                    success = false;
-                    break;
-                }
-        } else {
-            uint64_t start = dayStart(time(nullptr));
-            success = storageVisit(Resolution::Minute, [&](const Record &r) {
-                if (!strcmp(r.serial, serial.c_str()) && r.timestamp >= start)
-                    success = emit(r);
-                return success;
-            });
+    for (auto &r : rows) {
+        if (!first && httpd_resp_send_chunk(req, ",", 1) != ESP_OK) {
+            success = false;
+            break;
         }
-    } else {
-        unsigned days = range == "7d" ? 7 : range == "30d" ? 30 : 366;
-        auto rows =
-            all ? dailyHistoryAll(days, range == "12m") : dailyHistory(days, range == "12m", serial.c_str());
-        for (auto &r : rows)
-            if (!emit(r)) {
-                success = false;
-                break;
-            }
+        first = false;
+        if (!chunkJson(req, recordJson(r))) {
+            success = false;
+            break;
+        }
     }
     if (!success)
         return ESP_FAIL;
@@ -238,11 +259,11 @@ static void scheduleReboot() {
     xTaskCreate(reboot, "restart", 2048, nullptr, 2, nullptr);
 }
 static esp_err_t ota(httpd_req_t *req) {
-    if (updating.exchange(true))
+    if (!otaBeginGuard())
         return error(req, "409 Conflict", "Update already running");
     auto partition = esp_ota_get_next_update_partition(nullptr);
     if (!partition || req->content_len <= 0 || size_t(req->content_len) > partition->size) {
-        updating = false;
+        otaEndGuard();
         return error(req, "400 Bad Request", "Firmware does not fit OTA partition");
     }
     esp_ota_handle_t handle = 0;
@@ -267,7 +288,7 @@ static esp_err_t ota(httpd_req_t *req) {
     if (err != ESP_OK) {
         if (handle)
             esp_ota_abort(handle);
-        updating = false;
+        otaEndGuard();
         return error(req, "400 Bad Request", esp_err_to_name(err));
     }
     ok(req, "Firmware verified. Rebooting.");
@@ -400,9 +421,24 @@ static esp_err_t handler(httpd_req_t *req) {
                                  : error(req, "409 Conflict",
                                          "Pair unavailable in SNIFFER/mock, or inverter serial missing");
         }
+        if (path == "/api/update/check") {
+            cJSON_Delete(j);
+            updaterCheckNow();
+            return json(req, updaterJson());
+        }
+        if (path == "/api/update/install") {
+            cJSON_Delete(j);
+            if (!updaterInstall())
+                return error(req, "409 Conflict", "No update available, or an update is already running");
+            ok(req, "Firmware verified. Rebooting.");
+            scheduleReboot();
+            return ESP_OK;
+        }
         cJSON_Delete(j);
         return error(req, "404 Not Found", "Unknown endpoint");
     }
+    if (path == "/api/update")
+        return json(req, updaterJson());
     if (path == "/api/status" || path == "/api/system")
         return json(req, systemJson());
     if (path == "/api/live")

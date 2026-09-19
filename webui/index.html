@@ -31,6 +31,10 @@
       </header>
       <div id="notice" role="status" hidden></div>
       <div id="mode-banner" class="banner" hidden></div>
+      <div id="update-banner" class="banner" hidden>
+        <span id="update-banner-text"></span>
+        <button type="button" id="update-banner-install">Installer</button>
+      </div>
       <section id="dashboard" class="page">
         <div class="hero">
           <div>
@@ -55,17 +59,20 @@
               <span class="eyebrow">AU FIL DU TEMPS</span>
               <h2>Production mesurée</h2>
             </div>
-            <div class="ranges" id="ranges">
-              <button data-range="today" class="selected">Aujourd’hui</button
-              ><button data-range="7d">7 jours</button><button data-range="30d">30 jours</button
-              ><button data-range="12m">12 mois</button>
+            <div class="date-nav" id="date-nav">
+              <button type="button" id="date-prev" aria-label="Jour précédent">◀</button
+              ><input type="date" id="date-pick" /><button type="button" id="date-next" aria-label="Jour suivant">▶</button
+              ><button type="button" id="date-today">Aujourd’hui</button>
             </div>
           </div>
           <label class="inverter-select"
             >Onduleur affiché dans l’historique<select id="history-inverter"></select
           ></label>
-          <div class="legend"><span>Total</span><span>PV1</span><span>PV2</span><span>PV3</span><span>PV4</span></div>
+          <div class="legend" id="chart-legend">
+            <span>Total</span><span>PV1</span><span>PV2</span><span>PV3</span><span>PV4</span>
+          </div>
           <canvas id="production-chart" aria-label="Production électrique mesurée" role="img"></canvas>
+          <div id="chart-summary" class="stats-grid chart-summary" style="display: none"></div>
           <p id="chart-note" class="muted">En attente du premier point d’historique.</p>
         </article>
       </section>
@@ -309,7 +316,15 @@
           <button class="save">Enregistrer et redémarrer</button>
         </form>
         <article class="card firmware">
-          <h2>Mise à jour du firmware</h2>
+          <h2>Mise à jour automatique</h2>
+          <p class="muted" id="update-status">Vérification non effectuée.</p>
+          <div class="inline-form">
+            <button type="button" id="update-check">Vérifier maintenant</button>
+            <button type="button" id="update-install" hidden>Installer</button>
+          </div>
+        </article>
+        <article class="card firmware">
+          <h2>Mise à jour manuelle du firmware</h2>
           <p class="muted">
             Sélectionnez opensolecu.bin pour ESP32-C6. La configuration et l’historique sont conservés.
           </p>

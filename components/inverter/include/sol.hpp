@@ -61,6 +61,9 @@ uint32_t crc32(const void *data, size_t len);
 bool parseHex(const char *text, uint8_t *dst, size_t bytes);
 int32_t dayKey(time_t t);
 time_t dayStart(time_t t);
+// Inverse of dayKey: local midnight for a YYYYMMDD key (e.g. from Record::day or an /api/history
+// ?date= parameter).
+time_t dayStartFromKey(int32_t day);
 class APSystemsDecoder {
     InverterModel configured_ = InverterModel::Auto, detected_ = InverterModel::Auto;
     bool previous_ = false;

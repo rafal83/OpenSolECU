@@ -390,6 +390,10 @@ int main(int argc, char **argv) {
         tzset();
 #endif
         CHECK(crc32("123456789", 9) == 0xcbf43926);
+        time_t dayKeyProbe = 1704067200 + 12345; // 2024-01-01 03:25:45 UTC
+        CHECK(dayStartFromKey(dayKey(dayKeyProbe)) == dayStart(dayKeyProbe));
+        CHECK(dayKey(dayStartFromKey(20240101)) == 20240101);
+        CHECK(dayKey(dayStartFromKey(20241231)) == 20241231);
         fragments();
         legacyModels();
         radioObservability();

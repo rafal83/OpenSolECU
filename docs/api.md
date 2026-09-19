@@ -7,7 +7,7 @@ sauf `timestampUs`/`monotonicUs` du sniffer. Pas de CORS universel.
 |---|---|
 | GET /api/status, /api/system | Firmware, heap, horloge, Wi-Fi, radio, Flash |
 | GET /api/live | `inverters[]`, deux ou quatre canaux PV, total complet ou partiel |
-| GET /api/history?range=today\|7d\|30d\|12m&serial=... | `{records:[...]}` pour l'onduleur sélectionné |
+| GET /api/history?date=YYYYMMDD&serial=... | `{date,resolution,records:[...]}` pour un jour civil |
 | GET /api/stats?serial=... | Agrégats Wh, pic et dates de cet onduleur |
 | GET /api/config | Configuration sans secrets |
 | POST /api/config | Validation puis NVS ; reboot après réponse |
@@ -18,6 +18,9 @@ sauf `timestampUs`/`monotonicUs` du sniffer. Pas de CORS universel.
 | GET /api/export.csv?from=0&to=...&resolution=minute | CSV ; `15min` et `day` également |
 | GET /api/backup | JSON format 1, configuration expurgée, stats et trois anneaux |
 | POST /api/ota | Corps brut binaire ESP-IDF, pas multipart |
+| GET /api/update | État de la dernière vérification GitHub Releases |
+| POST /api/update/check | Vérifie GitHub Releases maintenant (bloquant) |
+| POST /api/update/install | Télécharge et flashe la dernière release ; reboot |
 | GET /api/debug | Anneau de log RAM |
 | POST /api/pair | Association explicite NORMAL uniquement |
 | GET /api/sniffer?after=ID | Métadonnées, scan, appareils, lot de trames |
@@ -61,6 +64,30 @@ Historique/statistiques : sans paramètre `serial`, le premier onduleur est sél
 Le CSV accepte `serial=...` ; par défaut il exporte tout et ajoute une colonne
 `serial`. Les records JSON possèdent aussi `channelCount` et `channels[]`. Le CSV
 réserve quatre colonnes `pv1_W` à `pv4_W`.
+
+`/api/history` sans `date` renvoie le jour civil courant. `resolution` vaut `1`
+(minute), `2` (15 min) ou `3` (jour), selon la résolution la plus fine encore
+disponible pour ce jour ; `0` et `records:[]` si rien n'est mesuré. Une
+résolution `3` ne contient qu'un seul enregistrement consolidé (`energyWh`,
+`peak`, `peakTime`), sans détail par canal — c'est le repli utilisé une fois
+que l'anneau minute/quart d'heure a évincé ce jour-là. `date` est refusé hors
+de la plage `[2024-01-01, aujourd'hui]`.
+
+## Mises à jour
+
+`/api/update` reflète le résultat de la dernière vérification, automatique (toutes les 6 h,
+après un délai initial de 60 s au démarrage) ou manuelle :
+```json
+{"checked":true,"available":true,"installing":false,"latestVersion":"2026.9.12","error":"","lastCheck":1758268800}
+```
+`latestVersion` et `lastCheck` restent vides/`null` tant qu'aucune vérification n'a abouti.
+`POST /api/update/check` relance une vérification immédiate (bloque le temps de l'appel réseau,
+une à deux secondes) et renvoie le même objet à jour. `POST /api/update/install` télécharge et
+flashe la release déjà détectée par la dernière vérification (`404`/`409` si aucune n'est connue
+ou si une mise à jour, automatique ou manuelle via `/api/ota`, est déjà en cours), puis redémarre
+— les deux chemins de flash partagent le même verrou de réentrance. Les versions suivent le
+format calendaire `AAAA.M.PATCH` (façon Home Assistant/ESPHome) ; la comparaison se fait champ
+par champ, pas alphabétiquement.
 
 ## Capture
 

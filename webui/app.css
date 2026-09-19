@@ -286,24 +286,42 @@ h2 {
   gap: 12px;
   flex-wrap: wrap;
 }
-.ranges {
+.date-nav {
   display: flex;
+  align-items: center;
   gap: 4px;
   background: #f3f5ef;
   border-radius: 7px;
   padding: 4px;
 }
-.ranges button {
+.date-nav button {
   padding: 7px 10px;
-  font-size: 11px;
+  font-size: 12px;
   background: transparent;
   color: #6c7e68;
   font-weight: 500;
+  border-radius: 5px;
 }
-.ranges .selected {
+.date-nav button:hover:not(:disabled) {
   background: white;
-  box-shadow: 0 1px 5px #122b1712;
   color: #245c3b;
+}
+.date-nav button:disabled {
+  color: #b7c2ae;
+}
+.date-nav input[type="date"] {
+  border: none;
+  background: white;
+  border-radius: 5px;
+  padding: 6px 8px;
+  font-size: 12px;
+  width: auto;
+  color: #245c3b;
+  font-weight: 500;
+}
+#chart-summary.chart-summary {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin: 10px 0;
 }
 .legend {
   display: flex;
@@ -581,6 +599,16 @@ dialog .actions {
   background: #e8f0de;
   border-color: #d1dfbf;
 }
+#update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+#update-banner button {
+  flex-shrink: 0;
+}
 progress {
   width: 100%;
   margin-top: 18px;
@@ -714,9 +742,13 @@ footer {
     gap: 14px;
     font-size: 11px;
   }
-  .ranges {
+  .date-nav {
     width: 100%;
-    justify-content: space-around;
+    justify-content: space-between;
+  }
+  .date-nav input[type="date"] {
+    flex: 1;
+    min-width: 0;
   }
   .stats-grid {
     gap: 10px;

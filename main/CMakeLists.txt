@@ -1,1 +1,1 @@
-idf_component_register(SRCS "app_main.cpp" "serial_console.cpp" INCLUDE_DIRS "." REQUIRES fleet config logging wifi_manager time_manager storage acquisition web_server sniffer app_update esp_driver_usb_serial_jtag esp_timer)
+idf_component_register(SRCS "app_main.cpp" "serial_console.cpp" INCLUDE_DIRS "." REQUIRES fleet config logging wifi_manager time_manager storage acquisition web_server sniffer updater app_update esp_driver_usb_serial_jtag esp_timer)
