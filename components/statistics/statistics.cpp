@@ -137,8 +137,19 @@ bool consolidatedDayAll(int32_t day, Record &out) {
             });
         }
     }
-    if (!any)
-        return false;
+    if (!any) {
+        // Per-inverter Day detail has aged out of its (intentionally short) ring; the combined
+        // total may still survive in the much longer-lived dayAll ring.
+        bool found = false;
+        storageVisit(Resolution::DayAll, [&](const Record &r) {
+            if (r.day == day) {
+                out = r;
+                found = true;
+            }
+            return !found;
+        });
+        return found;
+    }
     out = {};
     out.day = day;
     out.timestamp = dayStartFromKey(day);
@@ -204,6 +215,14 @@ cJSON *statsAllJson() {
             return true;
         });
     }
+    // The per-inverter Day ring is intentionally short (see components/storage); for days that
+    // have already aged out of it, fall back to the combined total preserved in the much
+    // longer-lived dayAll ring, so week/month/year/best-day stay accurate well past that window.
+    storageVisit(Resolution::DayAll, [&](const Record &r) {
+        if (r.day < today && !byDay.count(r.day))
+            byDay[r.day] = r.energyWh;
+        return true;
+    });
     StatisticsAccumulator accumulator(Totals{totalWh, todayWh, missing, 0, anyToday ? today : 0},
                                       time(nullptr));
     for (auto &entry : byDay) {

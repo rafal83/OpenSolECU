@@ -217,9 +217,9 @@ static esp_err_t csv(httpd_req_t *req) {
         for (size_t channel = 0; channel < maxChannels; channel++)
             if (std::isfinite(r.channels[channel]))
                 snprintf(powers[channel], sizeof(powers[channel]), "%.3f", r.channels[channel]);
-        int n = snprintf(line, sizeof(line), "%llu;%s;%lu;%s;%s;%s;%s;%.6f;%lu;%u;%s\r\n", r.timestamp,
-                         date, (unsigned long)r.duration, powers[0], powers[1], powers[2], powers[3],
-                         r.energyWh, (unsigned long)r.coverage, r.flags & 1, r.serial);
+        int n = snprintf(line, sizeof(line), "%lu;%s;%lu;%s;%s;%s;%s;%.6f;%lu;%u;%s\r\n",
+                         (unsigned long)r.timestamp, date, (unsigned long)r.duration, powers[0], powers[1],
+                         powers[2], powers[3], r.energyWh, (unsigned long)r.coverage, r.flags & 1, r.serial);
         success = httpd_resp_send_chunk(req, line, n) == ESP_OK;
         return success;
     });
@@ -237,7 +237,7 @@ static esp_err_t backup(httpd_req_t *req) {
         return ESP_FAIL;
     httpd_resp_send_chunk(req, ",\"history\":[", 12);
     bool first = true, success = true;
-    for (auto res : {Resolution::Minute, Resolution::Quarter, Resolution::Day}) {
+    for (auto res : {Resolution::Minute, Resolution::Quarter, Resolution::Day, Resolution::DayAll}) {
         storageVisit(res, [&](const Record &r) {
             if (!first)
                 httpd_resp_send_chunk(req, ",", 1);

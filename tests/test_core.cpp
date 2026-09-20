@@ -485,7 +485,7 @@ int main(int argc, char **argv) {
         Record restored;
         CHECK(decode(encoded, restored));
         CHECK(restored.sequence == 42 && near(restored.totalWh, 9876.5));
-        CHECK(encoded.size() == 96 && encoded[4] == 3);
+        CHECK(encoded.size() == recordBytes && encoded[0] == 4); // format version 4
         CHECK(!strcmp(restored.serial, r.serial) && restored.channelCount == 4);
         CHECK(near(restored.channels[0], 123.4) && near(restored.channels[2], 345.6) &&
               std::isnan(restored.channels[3]));
@@ -505,7 +505,7 @@ int main(int argc, char **argv) {
         CHECK(journal.latest(last) && last.sequence == 150 && last.totalWh == 149);
         Journal recovered(nor, 0, 2);
         CHECK(recovered.recover());
-        CHECK(recovered.count() >= 42 && recovered.count() <= 84);
+        CHECK(recovered.count() >= 64 && recovered.count() <= 128);
         CHECK(recovered.latest(last) && last.sequence == 150);
         nor.tear = 45;
         r.totalWh = 999;
@@ -516,7 +516,7 @@ int main(int argc, char **argv) {
         CHECK(torn.append(r));
         CHECK(torn.latest(last) && last.totalWh == 999);
         // Power-loss at every byte in a record must preserve the prior committed record.
-        for (int cut = 0; cut < 96; cut++) {
+        for (size_t cut = 0; cut < recordBytes; cut++) {
             Nor flash(8192);
             Journal j(flash, 0, 2);
             CHECK(j.recover());

@@ -262,64 +262,58 @@ static float getPower(const uint8_t *p) {
     auto encoded = uint16_t(get(p, 2));
     return encoded == 0xffff ? missing : encoded / 10.0f;
 }
-static void putd(uint8_t *p, double f) {
-    uint64_t v;
-    memcpy(&v, &f, 8);
-    put(p, v, 8);
-}
-static double getd(const uint8_t *p) {
-    uint64_t v = get(p, 8);
-    double f;
-    memcpy(&f, &v, 8);
-    return f;
-}
+// Format version byte: bumped whenever the layout below changes. No migration between versions --
+// a record from a different version fails this check and is treated as absent, same as a torn
+// write. Deliberately not a text magic ("OSOL"): with no migration path, a magic string buys
+// nothing the CRC32 doesn't already cover, and costs bytes.
+constexpr uint8_t recordFormatVersion = 4;
 EncodedRecord encode(const Record &r) {
     EncodedRecord b{};
-    memcpy(b.data(), "OSOL", 4);
-    b[4] = 3;
-    parseHex(r.serial, b.data() + 80, 6);
-    b[5] = uint8_t(r.resolution);
-    b[6] = r.flags;
-    b[7] = std::min<uint8_t>(r.channelCount, maxChannels);
-    put(b.data() + 8, r.sequence, 8);
-    put(b.data() + 16, r.timestamp, 8);
-    put(b.data() + 24, r.duration, 4);
-    put(b.data() + 28, r.coverage, 4);
-    put(b.data() + 32, r.day, 4);
+    b[0] = recordFormatVersion;
+    b[1] = uint8_t(r.resolution);
+    b[2] = r.flags;
+    b[3] = std::min<uint8_t>(r.channelCount, maxChannels);
+    put(b.data() + 4, r.sequence, 4);
+    put(b.data() + 8, r.timestamp, 4);
+    put(b.data() + 12, r.duration, 4);
+    put(b.data() + 16, r.coverage, 4);
+    put(b.data() + 20, r.day, 4);
     for (size_t i = 0; i < maxChannels; i++)
-        putPower(b.data() + 36 + i * 2, r.channels[i]);
-    putf(b.data() + 44, r.peak);
-    put(b.data() + 48, r.peakTime, 8);
-    putd(b.data() + 56, r.energyWh);
-    putd(b.data() + 64, r.totalWh);
-    putd(b.data() + 72, r.dayWh);
-    put(b.data() + 92, crc32(b.data(), 92), 4);
+        putPower(b.data() + 24 + i * 2, r.channels[i]);
+    putf(b.data() + 32, r.peak);
+    put(b.data() + 36, r.peakTime, 4);
+    putf(b.data() + 40, r.energyWh);
+    putf(b.data() + 44, r.totalWh);
+    putf(b.data() + 48, r.dayWh);
+    parseHex(r.serial, b.data() + 52, 6);
+    // Bytes 58-59 stay zero: reserved for a future field without forcing another incompatible
+    // format bump (recordBytes must stay a power of two dividing 4096 evenly, see sol.hpp).
+    put(b.data() + 60, crc32(b.data(), 60), 4);
     return b;
 }
 bool decode(const EncodedRecord &b, Record &r) {
-    if (memcmp(b.data(), "OSOL", 4) || b[4] != 3 || b[5] < 1 || b[5] > 3 ||
-        get(b.data() + 92, 4) != crc32(b.data(), 92))
+    if (b[0] != recordFormatVersion || b[1] < 1 || b[1] > 4 || get(b.data() + 60, 4) != crc32(b.data(), 60))
         return false;
     r = {};
-    for (int i = 0; i < 6; ++i)
-        snprintf(r.serial + 2 * i, 3, "%02X", b[80 + i]);
-    r.resolution = Resolution(b[5]);
-    r.flags = b[6];
-    r.sequence = get(b.data() + 8, 8);
-    r.timestamp = get(b.data() + 16, 8);
-    r.duration = get(b.data() + 24, 4);
-    r.coverage = get(b.data() + 28, 4);
-    r.day = get(b.data() + 32, 4);
-    if (b[7] > maxChannels)
+    r.resolution = Resolution(b[1]);
+    r.flags = b[2];
+    if (b[3] > maxChannels)
         return false;
-    r.channelCount = b[7];
+    r.channelCount = b[3];
+    r.sequence = uint32_t(get(b.data() + 4, 4));
+    r.timestamp = uint32_t(get(b.data() + 8, 4));
+    r.duration = uint32_t(get(b.data() + 12, 4));
+    r.coverage = uint32_t(get(b.data() + 16, 4));
+    r.day = int32_t(get(b.data() + 20, 4));
     for (size_t i = 0; i < maxChannels; i++)
-        r.channels[i] = getPower(b.data() + 36 + i * 2);
-    r.peak = getf(b.data() + 44);
-    r.peakTime = get(b.data() + 48, 8);
-    r.energyWh = getd(b.data() + 56);
-    r.totalWh = getd(b.data() + 64);
-    r.dayWh = getd(b.data() + 72);
+        r.channels[i] = getPower(b.data() + 24 + i * 2);
+    r.peak = getf(b.data() + 32);
+    r.peakTime = uint32_t(get(b.data() + 36, 4));
+    r.energyWh = getf(b.data() + 40);
+    r.totalWh = getf(b.data() + 44);
+    r.dayWh = getf(b.data() + 48);
+    for (int i = 0; i < 6; ++i)
+        snprintf(r.serial + 2 * i, 3, "%02X", b[52 + i]);
     return std::isfinite(r.energyWh) && std::isfinite(r.totalWh) && std::isfinite(r.dayWh) &&
            r.energyWh >= 0 && r.totalWh >= 0 && r.dayWh >= 0;
 }

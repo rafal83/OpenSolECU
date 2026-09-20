@@ -99,11 +99,17 @@ class EnergyIntegrator {
   public:
     double add(float power, uint64_t ms, bool online, uint32_t maxGapMs = 15000);
 };
-enum class Resolution : uint8_t { Minute = 1, Quarter = 2, Day = 3 };
+// DayAll: one record per calendar day summed across every configured inverter (empty `serial`),
+// kept in its own tiny ring far longer than the per-inverter Day ring -- see components/storage.
+enum class Resolution : uint8_t { Minute = 1, Quarter = 2, Day = 3, DayAll = 4 };
+// timestamp/peakTime as uint32 are valid until year 2106; sequence (per-ring monotonic counter)
+// wraps only after centuries of continuous appends. energyWh/totalWh/dayWh as float lose no
+// meaningful precision for household Wh readings.
 // Explicitly serialized little endian; no compiler struct layout written to flash.
 struct Record {
     char serial[13] = {}; // Empty only for legacy records without an inverter identity.
-    uint64_t sequence = 0, timestamp = 0;
+    uint32_t sequence = 0;
+    uint32_t timestamp = 0;
     Resolution resolution = Resolution::Minute;
     uint8_t flags = 0; // 1=simulated
     uint32_t duration = 0, coverage = 0;
@@ -111,10 +117,10 @@ struct Record {
     uint8_t channelCount = 0;
     std::array<float, maxChannels> channels = {missing, missing, missing, missing};
     float peak = 0;
-    uint64_t peakTime = 0;
-    double energyWh = 0, totalWh = 0, dayWh = 0;
+    uint32_t peakTime = 0;
+    float energyWh = 0, totalWh = 0, dayWh = 0;
 };
-constexpr size_t recordBytes = 96;
+constexpr size_t recordBytes = 64;
 using EncodedRecord = std::array<uint8_t, recordBytes>;
 EncodedRecord encode(const Record &r);
 bool decode(const EncodedRecord &bytes, Record &r);

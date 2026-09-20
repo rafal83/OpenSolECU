@@ -16,7 +16,7 @@ sauf `timestampUs`/`monotonicUs` du sniffer. Pas de CORS universel.
 | POST /api/wifi | Configuration réseau puis reboot |
 | GET /api/events | SSE `event: live` toutes les 5 s |
 | GET /api/export.csv?from=0&to=...&resolution=minute | CSV ; `15min` et `day` également |
-| GET /api/backup | JSON format 1, configuration expurgée, stats et trois anneaux |
+| GET /api/backup | JSON format 1, configuration expurgée, stats et quatre anneaux |
 | POST /api/ota | Corps brut binaire ESP-IDF, pas multipart |
 | GET /api/update | État de la dernière vérification GitHub Releases |
 | POST /api/update/check | Vérifie GitHub Releases maintenant (bloquant) |

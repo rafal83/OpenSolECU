@@ -74,12 +74,78 @@ static void publish(Slot &slot, InverterState state, bool passive) {
     if (state.online)
         ++slot.view.messages;
 }
+// Sums each configured inverter's per-day Day record into one combined DayAll record, for
+// calendar days old enough (2+ days) that every inverter has certainly rolled its own day over by
+// now. The per-inverter Day ring is intentionally short (see components/storage); DayAll outlives
+// it by years so the combined total survives long after the per-inverter breakdown has been
+// evicted. Idempotent: storage's own append-time dedup drops a day already recorded with an
+// equal-or-lower total, so re-running this after a reboot is harmless.
+static void consolidateOldDays() {
+    static uint64_t lastCheckMs = 0;
+    static uint64_t consolidatedThrough = 0; // epoch start of the last day folded into dayAll
+    uint64_t nowMs = esp_timer_get_time() / 1000;
+    if (nowMs - lastCheckMs < 600000) // throttle: at most once every 10 minutes
+        return;
+    lastCheckMs = nowMs;
+    time_t now = time(nullptr);
+    if (now < 1704067200)
+        return;
+    if (!consolidatedThrough) {
+        Record latest;
+        consolidatedThrough =
+            storageLatest(Resolution::DayAll, latest) ? uint64_t(latest.timestamp) : uint64_t(dayStart(now)) - 86400;
+    }
+    uint64_t cutoff = uint64_t(dayStart(now)) - 2 * 86400;
+    size_t n;
+    {
+        Guard g(mutex);
+        n = count;
+    }
+    while (consolidatedThrough < cutoff) {
+        uint64_t dayStartTs = consolidatedThrough + 86400;
+        int32_t key = dayKey(time_t(dayStartTs));
+        double totalWh = 0;
+        bool any = false;
+        for (size_t i = 0; i < n; i++) {
+            char serial[13];
+            {
+                Guard g(mutex);
+                strcpy(serial, slots[i].view.config.serial);
+            }
+            storageVisit(Resolution::Day, [&](const Record &r) {
+                if (!strcmp(r.serial, serial) && r.day == key) {
+                    totalWh += r.energyWh;
+                    any = true;
+                    return false;
+                }
+                return true;
+            });
+        }
+        if (any) {
+            Record combined;
+            combined.resolution = Resolution::DayAll;
+            combined.day = key;
+            combined.timestamp = uint32_t(dayStartTs);
+            combined.energyWh = float(totalWh);
+            combined.dayWh = float(totalWh);
+            // totalWh (lifetime cumulative) left at 0, peak left unknown: no single combined
+            // figure is computed for either, matching consolidatedDayAll()'s existing stance on
+            // values that aren't well-defined once summed across independently-tracked inverters.
+            combined.peak = missing;
+            storageEnqueue(combined);
+        }
+        consolidatedThrough = dayStartTs;
+    }
+}
 static void worker(void *) {
     Input input;
     APSPayload payload;
     for (;;) {
-        if (xQueueReceive(queue, &input, portMAX_DELAY) != pdTRUE)
+        if (xQueueReceive(queue, &input, pdMS_TO_TICKS(60000)) != pdTRUE) {
+            consolidateOldDays();
             continue;
+        }
+        consolidateOldDays();
         if (!input.capture) {
             if (auto slot = find(input.serial))
                 publish(*slot, input.state, false);

@@ -19,16 +19,24 @@ class Flash final : public BlockDevice {
 };
 static Flash flash;
 // 414 sectors (1,695,744 bytes) of the 416-sector (0x1a0000) `storage` partition; the
-// partition keeps a couple of sectors of slack over what's actually addressed here, same
-// margin style as before this was widened from 220, then 350, sectors.
-static constexpr size_t minuteSectors = 130, quarterSectors = 130, daySectors = 154;
+// partition keeps a couple of sectors of slack over what's actually addressed here.
+// Sized (at 64 bytes/record, 64 records/sector) for: ~2 days of per-minute detail (the dashboard's
+// selected-day chart mainly needs today/yesterday), ~55 days of quarter-hour detail at 3
+// configured inverters, ~43 days of per-inverter daily breakdown, and ~5 years of the
+// all-inverters-combined daily total (dayAll) that outlives it. All four numbers scale with
+// 1/inverterCount except dayAll, which is one record/day regardless of inverter count.
+static constexpr size_t minuteSectors = 135, quarterSectors = 248, daySectors = 2, dayAllSectors = 29;
 static Journal minute(flash, 0, minuteSectors), quarter(flash, minuteSectors * 4096, quarterSectors),
-    day(flash, (minuteSectors + quarterSectors) * 4096, daySectors);
+    day(flash, (minuteSectors + quarterSectors) * 4096, daySectors),
+    dayAll(flash, (minuteSectors + quarterSectors + daySectors) * 4096, dayAllSectors);
 static SemaphoreHandle_t mutex;
 static QueueHandle_t queue;
 static uint32_t failures = 0, dropped = 0;
 static Journal &journal(Resolution r) {
-    return r == Resolution::Minute ? minute : r == Resolution::Quarter ? quarter : day;
+    return r == Resolution::Minute   ? minute
+          : r == Resolution::Quarter ? quarter
+          : r == Resolution::Day     ? day
+                                      : dayAll;
 }
 static void worker(void *) {
     Record r;
@@ -37,10 +45,9 @@ static void worker(void *) {
             bool ok;
             {
                 Guard g(mutex);
-                if (r.resolution == Resolution::Day) {
-                    Record previous;
+                if (r.resolution == Resolution::Day || r.resolution == Resolution::DayAll) {
                     bool duplicate = false;
-                    day.visit([&](const Record &v) {
+                    journal(r.resolution).visit([&](const Record &v) {
                         if (!strcmp(v.serial, r.serial) && v.day == r.day && v.totalWh >= r.totalWh)
                             duplicate = true;
                         return !duplicate;
@@ -59,17 +66,22 @@ static void worker(void *) {
 bool storageBegin() {
     flash.partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
                                                static_cast<esp_partition_subtype_t>(0x40), "storage");
-    if (!flash.partition || flash.partition->size < (minuteSectors + quarterSectors + daySectors) * 4096)
+    if (!flash.partition ||
+        flash.partition->size < (minuteSectors + quarterSectors + daySectors + dayAllSectors) * 4096)
         return false;
     mutex = xSemaphoreCreateMutex();
     queue = xQueueCreate(12, sizeof(Record));
-    if (!mutex || !queue || !minute.recover() || !quarter.recover() || !day.recover())
+    if (!mutex || !queue || !minute.recover() || !quarter.recover() || !day.recover() || !dayAll.recover())
         return false;
     return xTaskCreate(worker, "storage", 4096, nullptr, 3, nullptr) == pdPASS;
 }
 bool storageRestore(Record &r) {
     Guard g(mutex);
     return minute.latest(r);
+}
+bool storageLatest(Resolution res, Record &r) {
+    Guard g(mutex);
+    return journal(res).latest(r);
 }
 bool storageEnqueue(const Record &r) {
     if (xQueueSend(queue, &r, pdMS_TO_TICKS(20)) == pdTRUE)
@@ -105,13 +117,14 @@ cJSON *storageJson() {
     Guard g(mutex);
     auto j = cJSON_CreateObject();
     cJSON_AddNumberToObject(j, "bytes", flash.partition->size);
-    cJSON_AddNumberToObject(j, "usedBytes", (minuteSectors + quarterSectors + daySectors) * 4096);
+    cJSON_AddNumberToObject(j, "usedBytes", (minuteSectors + quarterSectors + daySectors + dayAllSectors) * 4096);
     cJSON_AddNumberToObject(j, "minuteRecords", minute.count());
     cJSON_AddNumberToObject(j, "quarterRecords", quarter.count());
     cJSON_AddNumberToObject(j, "dailyRecords", day.count());
+    cJSON_AddNumberToObject(j, "dailyAllRecords", dayAll.count());
     cJSON_AddNumberToObject(j, "writeFailures", failures);
     cJSON_AddNumberToObject(j, "dropped", dropped);
-    cJSON_AddNumberToObject(j, "format", 3);
+    cJSON_AddNumberToObject(j, "format", 4);
     return j;
 }
 } // namespace sol
