@@ -210,7 +210,12 @@ bool fleetBegin() {
         slots[i].view.configured = true;
         restore(slots[i]);
     }
-    return xTaskCreate(worker, "inverters", 6144, nullptr, 4, nullptr) == pdPASS;
+    // components/acquisition's radioWorker measured a genuine stack-protection-fault overflow at
+    // 6144-7168 bytes running the same APSReassembler::add() call chain this worker() also runs
+    // for passive frames (reassembly/observability nests several ParsedFrame-sized locals on top
+    // of the 802.15.4 driver's own stack usage) -- generous margin here for the same reason, now
+    // further loaded by consolidateOldDays()'s own nested storageVisit lambdas.
+    return xTaskCreate(worker, "inverters", 12288, nullptr, 4, nullptr) == pdPASS;
 }
 void fleetCapture(const CapturedFrame &frame) {
     if (!queue)
